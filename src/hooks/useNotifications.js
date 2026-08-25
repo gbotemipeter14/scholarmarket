@@ -42,6 +42,21 @@ function getInitialNotifications() {
   return initial;
 }
 
+/**
+ * Manages in-app notifications with localStorage persistence.
+ *
+ * Provides methods to add, mark as read, and clear notifications, as well as
+ * a derived count of unread notifications.
+ *
+ * @returns {{
+ *   notifications: Array<{ id: string, type: string, title: string, message: string, read: boolean, createdAt: string }>,
+ *   unreadCount: number,
+ *   addNotification: (options: { type?: string, title: string, message: string }) => void,
+ *   markRead: (id: string) => void,
+ *   markAllRead: () => void,
+ *   clearAll: () => void
+ * }} The notification state and action methods.
+ */
 export function useNotifications() {
   const [notifications, setNotifications] = useState(getInitialNotifications);
   const isInitialized = useRef(false);

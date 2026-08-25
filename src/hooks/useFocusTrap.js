@@ -1,5 +1,16 @@
 import { useEffect, useRef } from 'react';
 
+/**
+ * Traps keyboard focus within a modal element while it is active.
+ *
+ * Handles Tab/Shift+Tab cycling through focusable elements, pressing Escape
+ * to close the modal, and restoring focus to the previously focused element
+ * on cleanup.
+ *
+ * @param {boolean} isActive - Whether the focus trap is currently active.
+ * @param {() => void} onClose - Callback invoked when the user presses Escape.
+ * @returns {React.RefObject} A ref to attach to the modal container element.
+ */
 export default function useFocusTrap(isActive, onClose) {
     const modalRef = useRef(null);
     const triggerRef = useRef(null);

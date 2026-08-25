@@ -26,8 +26,11 @@ const generateMock = (interval) => {
 };
 
 /**
- * useEarningsData – mock hook that returns earnings data for the selected interval.
+ * useEarningsData – hook that returns earnings data for the selected interval.
  * In a real implementation this would fetch from the backend.
+ *
+ * @param {'7d' | '30d' | 'ytd'} interval - The time interval to generate data for.
+ * @returns {Array<{ date: string, earnings: number, gas: number, royalties: number, net: number }>} An array of daily earnings data points.
  */
 export default function useEarningsData(interval) {
   const [data, setData] = useState([]);

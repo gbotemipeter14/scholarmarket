@@ -31,6 +31,23 @@ function setLocalSavedIds(address, ids) {
   window.localStorage.setItem(getStorageKey(address), JSON.stringify(ids));
 }
 
+/**
+ * Manages the user's saved (bookmarked) materials list.
+ *
+ * Fetches saved materials from the backend with a localStorage fallback,
+ * and provides a toggle function to save or unsave individual materials.
+ *
+ * @returns {{
+ *   items: Array<object>,
+ *   savedIds: Set<string>,
+ *   isSaved: (materialOrId: string | object) => boolean,
+ *   toggleSaved: (material: object) => void,
+ *   toggleSavedAsync: (material: object) => Promise<object>,
+ *   isToggling: boolean,
+ *   pendingMaterialId: string | null,
+ *   toggleError: Error | null
+ * }} The saved materials state and mutation helpers.
+ */
 export function useSavedMaterials() {
   const { address, isConnected } = useWallet();
   const queryClient = useQueryClient();

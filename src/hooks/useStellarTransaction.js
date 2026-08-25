@@ -18,6 +18,9 @@ import {
 } from "@/lib/transactions/transaction";
 import { STELLAR_RPC_URL } from "@/lib/config/chain";
 
+/**
+ * Frozen enum of transaction lifecycle states used by {@link useStellarTransaction}.
+ */
 export const TxStatus = Object.freeze({
   Idle: "idle",
   WaitingWallet: "waiting_wallet",
@@ -89,6 +92,19 @@ async function pollTransaction(hash, { maxAttempts = 15, delayMs = 2_000 } = {})
   throw new Error("Transaction confirmation timed out");
 }
 
+/**
+ * Manages the full lifecycle of a Stellar transaction: wallet signing,
+ * submission to the Stellar RPC, polling for confirmation, and state updates
+ * exposed through the global transaction provider.
+ *
+ * @returns {{
+ *   execute: (unsignedXdr: string, options?: { description?: string, explorerBaseUrl?: string }) => Promise<{ hash: string }>,
+ *   state: { status: string, description?: string, hash?: string, error?: Error },
+ *   reset: () => void,
+ *   retry: () => void,
+ *   buildExplorerUrl: (hash: string) => string
+ * }} An object containing the execute function, current state, reset, retry, and a helper to build explorer URLs.
+ */
 export function useStellarTransaction() {
   const { signTransaction, isConnected } = useWallet();
   const {

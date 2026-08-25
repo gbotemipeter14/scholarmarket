@@ -26,6 +26,13 @@ function storeIds(ids) {
   }
 }
 
+/**
+ * Records a material in the user's "recently viewed" list stored in localStorage.
+ * Moves the material to the front if it already exists, and trims the list to
+ * the maximum allowed length.
+ *
+ * @param {object} material - The material object to track. Must contain an `_id`, `id`, or `materialId` field.
+ */
 export function trackRecentlyViewed(material) {
   if (typeof window === "undefined") return;
 
@@ -38,6 +45,14 @@ export function trackRecentlyViewed(material) {
   storeIds(updated);
 }
 
+/**
+ * Fetches the full details of recently viewed materials from localStorage.
+ *
+ * Reads the stored material IDs from localStorage and retrieves each material's
+ * details from the backend (up to 6 items).
+ *
+ * @returns {object & { items: Array<object>, ids: string[] }} The react-query result augmented with resolved material items and stored IDs.
+ */
 export function useRecentlyViewed() {
   const ids = useMemo(() => getStoredIds(), []);
 

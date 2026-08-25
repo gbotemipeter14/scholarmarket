@@ -38,6 +38,14 @@ function applyTheme(theme) {
 	document.documentElement.style.colorScheme = theme;
 }
 
+/**
+ * Manages the user's light/dark theme preference.
+ *
+ * Reads the initial theme from localStorage (falling back to the system
+ * preference), persists changes, and applies the theme to the document root.
+ *
+ * @returns {{ theme: 'light' | 'dark', isDark: boolean, toggleTheme: () => void }} The current theme state and a toggle function.
+ */
 export function useThemePreference() {
 	const [theme, setTheme] = useState(getInitialTheme);
 
