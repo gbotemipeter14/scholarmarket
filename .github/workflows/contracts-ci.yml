@@ -1,0 +1,65 @@
+name: Contracts CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "soroban/**"
+      - ".github/workflows/contracts-ci.yml"
+  push:
+    branches:
+      - main
+
+jobs:
+  contracts:
+    name: Build, Test & Lint Soroban Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: soroban
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect Soroban workspace
+        id: detect
+        shell: bash
+        run: |
+          shopt -s nullglob globstar
+          files=(soroban/**/Cargo.toml)
+          if [ "${#files[@]}" -gt 0 ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust toolchain
+        if: steps.detect.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache Rust artifacts
+        if: steps.detect.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            soroban -> soroban/target
+
+      - name: Check formatting
+        if: steps.detect.outputs.present == 'true'
+        run: cargo fmt --all -- --check
+
+      - name: Build Wasm contracts
+        if: steps.detect.outputs.present == 'true'
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Run contract tests
+        if: steps.detect.outputs.present == 'true'
+        run: cargo test --workspace --all-targets
+
+      - name: Run Clippy (report warnings)
+        if: steps.detect.outputs.present == 'true'
+        run: cargo clippy --workspace --all-targets -- --warn warnings

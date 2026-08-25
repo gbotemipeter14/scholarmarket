@@ -21,7 +21,7 @@ export default function PayoutSplits({ onChange, initialSplits = [] }) {
     return stellarRegex.test(address);
   };
 
-  const validateSplits = () => {
+  function validateSplits() {
     const newErrors = {};
     let totalPercentage = 0;
 
@@ -63,7 +63,7 @@ export default function PayoutSplits({ onChange, initialSplits = [] }) {
     onChange(isValid ? splits : null, isValid);
 
     return isValid;
-  };
+  }
 
   const handleAddSplit = () => {
     const currentTotal = splits.reduce(

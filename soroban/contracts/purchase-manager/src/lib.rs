@@ -206,7 +206,6 @@ enum DataKey {
     Settlement(u64),
     Dispute(u64),
     PurchaseBuyer(u64),
-    PendingAdmin,
     CreatorTier(Address),
     /// Maintenance index (#464): sequential slot -> (purchase_id,
     /// material_id, buyer), populated at purchase time so
@@ -1230,6 +1229,93 @@ impl PurchaseManager {
             .set(&entitlement_key, &entitlement);
 
         // Update settlement to Refunded
+        settlement.state = SettlementState::Refunded;
+        settlement.resolved_ledger = Some(current_ledger);
+        settlement.refunded_amount = escrow.seller_net;
+        set_settlement_record(&env, purchase_id, &settlement);
+
+        PurchaseRefundedEvent {
+            purchase_id,
+            material_id: escrow.material_id.clone(),
+            buyer: buyer.clone(),
+            asset: escrow.asset.clone(),
+            refund_amount: escrow.seller_net,
+            entitlement_revoked: true,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Process a refund for a purchase, returning escrowed funds to the buyer
+    /// and revoking their entitlement. Admin-only.
+    ///
+    /// This is the primary refund entrypoint (`process_refund`). It mirrors
+    /// `refund_purchase_to_buyer`: it requires admin authorization, only
+    /// operates on `Pending` settlements, rejects already-claimed escrows, and
+    /// guarantees that the buyer's token balance increases while the
+    /// contract's balance decreases and the entitlement is revoked.
+    pub fn process_refund(
+        env: Env,
+        admin: Address,
+        purchase_id: u64,
+        buyer: Address,
+    ) -> Result<(), PurchaseError> {
+        auth::require_admin(&env, &admin)?;
+
+        let mut settlement = get_settlement_record_internal(&env, purchase_id)
+            .ok_or(PurchaseError::SettlementNotPending)?;
+
+        if settlement.state != SettlementState::Pending {
+            return Err(PurchaseError::RefundNotAllowed);
+        }
+
+        let mut escrow =
+            get_escrow_record_internal(&env, purchase_id).ok_or(PurchaseError::MaterialNotFound)?;
+
+        if escrow.claimed {
+            return Err(PurchaseError::EscrowAlreadyClaimed);
+        }
+
+        let current_ledger = env.ledger().sequence();
+
+        let entitlement_key = DataKey::Entitlement((escrow.material_id.clone(), buyer.clone()));
+        let entitlement: EntitlementRecord = env
+            .storage()
+            .persistent()
+            .get(&entitlement_key)
+            .ok_or(PurchaseError::NotAuthorized)?;
+
+        if !entitlement.active {
+            return Err(PurchaseError::NotAuthorized);
+        }
+
+        if escrow.seller_net > 0 {
+            let contract_address = env.current_contract_address();
+
+            let balance = SacToken::new(&env, &escrow.asset).balance(&contract_address);
+            if balance < escrow.seller_net {
+                return Err(PurchaseError::InsufficientEscrowBalance);
+            }
+
+            transfer_asset(
+                &env,
+                &contract_address,
+                &buyer,
+                &escrow.asset,
+                escrow.seller_net,
+            )?;
+        }
+
+        escrow.claimed = true;
+        set_escrow_record(&env, purchase_id, &escrow);
+
+        let mut entitlement = entitlement;
+        entitlement.active = false;
+        env.storage()
+            .persistent()
+            .set(&entitlement_key, &entitlement);
+
         settlement.state = SettlementState::Refunded;
         settlement.resolved_ledger = Some(current_ledger);
         settlement.refunded_amount = escrow.seller_net;
