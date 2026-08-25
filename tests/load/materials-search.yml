@@ -1,0 +1,52 @@
+# Artillery load test for GET /api/materials/search
+#
+# This is an alternative to the k6 script (tests/load/materials-search.k6.js).
+# Install Artillery with:  npm install -g artillery
+# Run with:               artillery run tests/load/materials-search.yml
+# Point at a running server with the BASE_URL env var.
+#
+# The summary reports:
+#   - Scenarios launched / completed
+#   - "Codes" (status distribution -> error rate)
+#   - "Latency" (min, median, p95, p99) -> must stay under 500ms avg
+
+config:
+  target: "{{ $processEnvironment.BASE_URL || 'http://localhost:3000' }}"
+  phases:
+    # Ramp to ~100 arrivals/sec and hold, then a concurrency spike to 150 users.
+    - name: "Warm up"
+      duration: 30
+      arrivalRate: 20
+    - name: "Sustained 100 RPS"
+      duration: 120
+      arrivalRate: 100
+    - name: "Concurrency spike"
+      duration: 60
+      arrivalRate: 120
+      rampTo: 150
+  defaults:
+    headers:
+      Accept: "application/json"
+
+scenarios:
+  - name: "Varied search queries"
+    weight: 1
+    flow:
+      - loop:
+          - get:
+              url: "/api/materials/search?q=calculus"
+          - get:
+              url: "/api/materials/search?q=machine%20learning"
+          - get:
+              url: "/api/materials/search?subject=Mathematics"
+          - get:
+              url: "/api/materials/search?subject=Physics&level=University"
+          - get:
+              url: "/api/materials/search?category=Presentation"
+          - get:
+              url: "/api/materials/search?q=algebra&sortBy=newest"
+          - get:
+              url: "/api/materials/search?q=biology&licenseType=Creative%20Commons"
+          - get:
+              url: "/api/materials/search?q=economics&page=2"
+        count: 20

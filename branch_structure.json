@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "docs/add-jsdoc-utilities-hooks",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "docs/add-jsdoc-utilities-hooks": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "docs/add-jsdoc-utilities-hooks",
+    "origin"
+  ]
+}
