@@ -24,6 +24,7 @@ export const materials = {
         price: "10",
         asset: "XLM",
         storageKey: "https://scholarmarket.test/files/draft.pdf",
+        quarantineState: "clean",
     },
     published: {
         _id: "mat_pub_456",

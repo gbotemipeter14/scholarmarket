@@ -10,9 +10,13 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 // Patch Horizon.Server before importing the module under test.
-const mockSubmit = vi.fn();
-const mockLoadAccount = vi.fn();
-const mockFeeStats = vi.fn();
+// `vi.hoisted` keeps the mock fns accessible inside the hoisted `vi.mock`
+// factory (referencing them directly there would hit the temporal dead zone).
+const { mockSubmit, mockLoadAccount, mockFeeStats } = vi.hoisted(() => ({
+  mockSubmit: vi.fn(),
+  mockLoadAccount: vi.fn(),
+  mockFeeStats: vi.fn(),
+}));
 
 vi.mock('@stellar/stellar-sdk', () => ({
   Horizon: {

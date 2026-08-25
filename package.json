@@ -23,6 +23,8 @@
     "test:contracts": "hardhat test",
     "test:integration": "vitest run test/integration",
     "test:backend": "node --test tests/backend/*.test.mjs",
+    "load:k6": "k6 run tests/load/materials-search.k6.js",
+    "load:artillery": "artillery run tests/load/materials-search.yml",
     "audit:deps": "npm audit --audit-level=critical",
     "audit:deps:high": "npm audit --audit-level=high",
     "audit:deps:critical": "npm audit --audit-level=critical",

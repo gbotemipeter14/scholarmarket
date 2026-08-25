@@ -1,0 +1,68 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "public/**"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "bun.lock"
+      - "next.config.mjs"
+      - "eslint.config.mjs"
+      - "jsconfig.json"
+      - "postcss.config.mjs"
+      - ".github/workflows/frontend-ci.yml"
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Lint, Test & Build Frontend
+    runs-on: ubuntu-latest
+    env:
+      MONGODB_URI: mongodb://localhost:27017/scholarmarket-ci
+      MONGODB_DB: scholarmarket-ci
+      JWT_SECRET: ci-jwt-secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_GATEWAY_URL: https://gateway.pinata.cloud
+      PINATA_JWT: ci-pinata-token
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ci-walletconnect-project-id
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        # NOTE: this repo's committed package-lock.json is currently out of sync
+        # with package.json (missing/changed deps such as redis, undici,
+        # typescript), so strict `npm ci` aborts. `npm install` reconciles the
+        # lockfile at install time and is what the pre-existing frontend.yml
+        # uses. Switch back to `npm ci` once the lockfile is regenerated.
+        run: npm install
+
+      - name: Lint
+        run: npm run lint --if-present -- --ignore-pattern "src/app/api/**" src/app src/components src/hooks src/providers src/utils
+
+      - name: Type check
+        run: npm run typecheck --if-present
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Build Next.js app
+        run: npm run build --if-present

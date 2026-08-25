@@ -1482,48 +1482,14 @@ fn set_creator_tier_requires_admin() {
     let env = Env::default();
     env.mock_all_auths();
 
-    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+    let admin = Address::generate(&env);
+    let registry = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let non_admin = Address::generate(&env);
 
-    let purchase_id = client.purchase(&buyer, &material_id, &asset, &1_000_000, &sample_transaction_id(&env));
-    let purchase_events = env.events().all();
-    assert_eq!(purchase_id, 0);
-    assert!(client.has_entitlement(&material_id, &buyer));
-    let entitlement = client.get_entitlement(&material_id, &buyer).unwrap();
-    assert_eq!(entitlement.purchase_id, purchase_id);
-    assert_eq!(entitlement.amount, 1_000_000);
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
 
-    assert_eq!(asset_client.transfer_count(), 2);
-    assert_eq!(
-        asset_client.transfer_at(&0),
-        MockTransfer {
-            from: buyer.clone(),
-            to: treasury.clone(),
-            amount: 50_000,
-        }
-    );
-    assert_eq!(
-        asset_client.transfer_at(&1),
-        MockTransfer {
-            from: buyer.clone(),
-            to: contract_id.clone(),
-            amount: 950_000,
-        }
-    );
-
-    let escrow = client.get_escrow_record(&purchase_id).unwrap();
-    assert_eq!(escrow.purchase_id, purchase_id);
-    assert_eq!(escrow.seller_net, 950_000);
-    assert!(!escrow.claimed);
-    assert_eq!(escrow.payout_shares.len(), 2);
-
-    assert_eq!(purchase_events.events().len(), 3);
-
-    let duplicate = client.try_purchase(&buyer, &material_id, &asset, &1_000_000, &sample_transaction_id(&env));
-    assert_eq!(duplicate, Err(Ok(PurchaseError::EntitlementAlreadyExists)));
-}
-
-#[test]
-fn withdraw_payouts_succeeds_after_lock_period() {
     let result = client.try_set_creator_tier(&non_admin, &creator, &CreatorTier::Tier1);
     assert_eq!(result, Err(Ok(PurchaseError::NotAuthorized)));
 }
@@ -1644,7 +1610,6 @@ fn default_creator_uses_platform_fee_bps() {
 
 #[test]
 fn purchase_id_increments_sequentially() {
-fn tier1_creator_uses_250bps_fee() {
     let env = Env::default();
     let admin = Address::generate(&env);
     let registry = env.register(MockRegistry, ());
@@ -1694,6 +1659,46 @@ fn tier1_creator_uses_250bps_fee() {
     assert!(client.get_purchase_buyer(&pid1).is_some());
     assert!(client.get_purchase_buyer(&pid2).is_some());
 }
+
+#[test]
+fn tier1_creator_uses_250bps_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(&env);
+    let buyer = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let asset = env.register(MockAsset, ());
+    let asset_client = MockAssetClient::new(&env, &asset);
+
+    let material_id = bytes32(&env, 7);
+    let material = MaterialRecord {
+        material_id: material_id.clone(),
+        creator: creator.clone(),
+        paused: false,
+        status: MaterialStatus::Active,
+        quotes: vec![
+            &env,
+            AssetQuote {
+                asset: asset.clone(),
+                amount: 1_000_000,
+            },
+        ],
+        payout_shares: vec![
+            &env,
+            PayoutShare {
+                recipient: creator.clone(),
+                share_bps: 10_000,
+            },
+        ],
+    };
+    let registry_client = MockRegistryClient::new(&env, &registry);
+    registry_client.set_material(&material_id, &material);
+
+    let (_, client) = install_and_init_contract(&env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
     client.set_creator_tier(&admin, &creator, &CreatorTier::Tier1);
 
     assert_eq!(client.get_creator_tier(&creator), CreatorTier::Tier1);
@@ -2191,4 +2196,199 @@ fn extend_admin_role_ttl_is_cursor_based() {
     let renewed_ttl =
         env.as_contract(&contract_id, || env.storage().persistent().get_ttl(&admin_key));
     assert_ttl_renewed_to_max(renewed_ttl);
+}
+
+// ============== Issue #36: Refund & Dispute Flow Tests ==============
+
+// Builds a fully initialized contract with an allowed asset and a completed
+// purchase, returning every address needed to exercise refund/dispute flows.
+fn setup_refund_scenario(
+    env: &Env,
+) -> (
+    Address,
+    PurchaseManagerClient,
+    Address,
+    Address,
+    Address,
+    Address,
+    BytesN<32>,
+    u64,
+) {
+    env.mock_all_auths();
+
+    let admin = Address::generate(env);
+    let registry = env.register(MockRegistry, ());
+    let treasury = Address::generate(env);
+    let buyer = Address::generate(env);
+    let creator = Address::generate(env);
+    let asset = env.register(MockAsset, ());
+
+    let material_id = bytes32(env, 1);
+    let material = MaterialRecord {
+        material_id: material_id.clone(),
+        creator: creator.clone(),
+        paused: false,
+        status: MaterialStatus::Active,
+        quotes: vec![
+            env,
+            AssetQuote {
+                asset: asset.clone(),
+                amount: 1_000_000,
+            },
+        ],
+        payout_shares: vec![
+            env,
+            PayoutShare {
+                recipient: creator.clone(),
+                share_bps: 10_000,
+            },
+        ],
+    };
+    let registry_client = MockRegistryClient::new(env, &registry);
+    registry_client.set_material(&material_id, &material);
+
+    let (contract_id, client) = install_and_init_contract(env, &admin, &registry, &treasury, 500);
+    client.set_asset_allowed(&admin, &asset, &AssetKind::Token, &true);
+
+    let purchase_id = client.purchase(
+        &buyer,
+        &material_id,
+        &asset,
+        &1_000_000,
+        &sample_transaction_id(env),
+    );
+
+    (contract_id, client, admin, buyer, creator, asset, material_id, purchase_id)
+}
+
+#[test]
+fn process_refund_rejects_non_admin() {
+    let env = Env::default();
+    let (_contract_id, client, _admin, buyer, _creator, _asset, material_id, purchase_id) =
+        setup_refund_scenario(&env);
+
+    let attacker = Address::generate(&env);
+
+    let result = client.try_process_refund(&attacker, &purchase_id, &buyer);
+    assert_eq!(result, Err(Ok(PurchaseError::NotAuthorized)));
+
+    // State must be unchanged: settlement still Pending, entitlement intact.
+    assert_eq!(client.get_settlement_state(&purchase_id), Some(SettlementState::Pending));
+    assert!(client.has_entitlement(&material_id, &buyer));
+}
+
+#[test]
+fn process_refund_rejects_buyer_without_entitlement() {
+    let env = Env::default();
+    let (_contract_id, client, admin, _buyer, _creator, _asset, _material_id, purchase_id) =
+        setup_refund_scenario(&env);
+
+    let stranger = Address::generate(&env);
+
+    let result = client.try_process_refund(&admin, &purchase_id, &stranger);
+    assert_eq!(result, Err(Ok(PurchaseError::NotAuthorized)));
+}
+
+#[test]
+fn process_refund_rejects_non_pending_settlement() {
+    let env = Env::default();
+    let (contract_id, client, admin, buyer, creator, _asset, _material_id, purchase_id) =
+        setup_refund_scenario(&env);
+
+    // Release first so the settlement is no longer Pending.
+    env.ledger().set_sequence_number(36_000);
+    client.withdraw_payouts(&creator, &purchase_id);
+
+    let result = client.try_process_refund(&admin, &purchase_id, &buyer);
+    assert_eq!(result, Err(Ok(PurchaseError::RefundNotAllowed)));
+}
+
+#[test]
+fn process_refund_increases_buyer_balance_decreases_contract_balance_and_revokes_entitlement() {
+    let env = Env::default();
+    let (contract_id, client, admin, buyer, _creator, asset, material_id, purchase_id) =
+        setup_refund_scenario(&env);
+    let asset_client = MockAssetClient::new(&env, &asset);
+
+    let escrow = client.get_escrow_record(&purchase_id).unwrap();
+    let seller_net = escrow.seller_net;
+    assert!(seller_net > 0);
+
+    let buyer_balance_before = asset_client.balance(&buyer);
+    let contract_balance_before = asset_client.balance(&contract_id);
+
+    let result = client.try_process_refund(&admin, &purchase_id, &buyer);
+    assert!(result.is_ok());
+
+    let buyer_balance_after = asset_client.balance(&buyer);
+    let contract_balance_after = asset_client.balance(&contract_id);
+
+    // Buyer received the escrowed funds and the contract's balance dropped.
+    assert_eq!(buyer_balance_after - buyer_balance_before, seller_net);
+    assert_eq!(contract_balance_before - contract_balance_after, seller_net);
+
+    // Entitlement revoked and settlement terminal.
+    assert!(!client.has_entitlement(&material_id, &buyer));
+    let settlement = client.get_settlement(&purchase_id).unwrap();
+    assert_eq!(settlement.state, SettlementState::Refunded);
+    assert_eq!(settlement.refunded_amount, seller_net);
+    assert!(client.is_refunded(&purchase_id));
+}
+
+#[test]
+fn dispute_refund_flow_revokes_entitlement_and_updates_balances() {
+    let env = Env::default();
+    let (contract_id, client, admin, buyer, _creator, asset, material_id, purchase_id) =
+        setup_refund_scenario(&env);
+    let asset_client = MockAssetClient::new(&env, &asset);
+
+    let escrow = client.get_escrow_record(&purchase_id).unwrap();
+    let seller_net = escrow.seller_net;
+
+    let reason = Bytes::from_array(&env, b"Material not delivered");
+    client.open_dispute(&buyer, &purchase_id, &reason);
+    assert_eq!(client.get_settlement_state(&purchase_id), Some(SettlementState::Disputed));
+
+    let buyer_balance_before = asset_client.balance(&buyer);
+    let contract_balance_before = asset_client.balance(&contract_id);
+
+    let result = client.try_resolve_dispute(&admin, &purchase_id, &DisputeResolution::RefundBuyer);
+    assert!(result.is_ok());
+
+    let buyer_balance_after = asset_client.balance(&buyer);
+    let contract_balance_after = asset_client.balance(&contract_id);
+
+    assert_eq!(buyer_balance_after - buyer_balance_before, seller_net);
+    assert_eq!(contract_balance_before - contract_balance_after, seller_net);
+    assert!(!client.has_entitlement(&material_id, &buyer));
+
+    let settlement = client.get_settlement(&purchase_id).unwrap();
+    assert_eq!(settlement.state, SettlementState::Refunded);
+
+    let dispute = client.get_dispute(&purchase_id).unwrap();
+    assert_eq!(dispute.resolution, DisputeResolution::RefundBuyer);
+}
+
+#[test]
+fn dispute_release_to_creator_keeps_entitlement_active() {
+    let env = Env::default();
+    let (contract_id, client, admin, buyer, _creator, asset, material_id, purchase_id) =
+        setup_refund_scenario(&env);
+    let asset_client = MockAssetClient::new(&env, &asset);
+
+    let reason = Bytes::from_array(&env, b"Legitimate purchase");
+    client.open_dispute(&buyer, &purchase_id, &reason);
+
+    let contract_balance_before = asset_client.balance(&contract_id);
+
+    let result = client.try_resolve_dispute(&admin, &purchase_id, &DisputeResolution::ReleaseToCreator);
+    assert!(result.is_ok());
+
+    // Funds released to creator: contract balance decreases, entitlement stays active.
+    let contract_balance_after = asset_client.balance(&contract_id);
+    assert!(contract_balance_after < contract_balance_before);
+    assert!(client.has_entitlement(&material_id, &buyer));
+
+    let settlement = client.get_settlement(&purchase_id).unwrap();
+    assert_eq!(settlement.state, SettlementState::Released);
 }
